@@ -1,19 +1,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 
 struct user {
     char username[50];
     unsigned long passwordHash;
 };
 
-struct budgetEntry{
+struct budgetRecord{
     char date[30]; // DD-MM-YYYY e.g: 27-11-2025
     float amount; 
-    char type[30];
+    char type[20]; // is it income or expense
 };
-
 
 void homeMenu(struct user users[], int *usercount);
 void dashboardMenu(char *username);
@@ -30,14 +29,13 @@ unsigned long hashString(const char *str);
 float encryptAmount(float amount);
 float decryptAmount(float encrypted);
 
-void deleteRecord(char *username);
-void editRecord(char *username);
 void viewRecord(char *username);
 void addRecord(char *username);
+void deleteRecord(char *username);
+void editRecord(char *username);
 void sentAlert(char *username);
 void sentMonthlyReport(char *username);
-
-
+char* returnMonth(char* monthNum);
 
 void exitMenu();
 void invalidChoice();
@@ -76,7 +74,6 @@ void homeMenu(struct user users[], int *usercount) {
     
 }
 
-// Load credentials from file into struct array
 void loadCredentials(struct user users[], int *usercount) {
 
     FILE *fptr = fopen("credentials/cred.txt", "r");
@@ -119,7 +116,7 @@ void registration(struct user users[], int *usercount) {
         printf("Enter username: ");
         scanf("%s", users[*usercount].username);
 
-        // Check duplicate
+        // Check username duplicate
         for(int i = 0; i < *usercount; i++) {
             if(strcmp(users[i].username, users[*usercount].username) == 0) {
                 printf("Username already exists! Try another.\n");
@@ -142,11 +139,9 @@ void registration(struct user users[], int *usercount) {
         }
     } while(length < 4);
 
-    // Hash password
     unsigned long hashed = hashString(password);
     users[*usercount].passwordHash = hashed;
 
-    // Save to file
     saveCredentialToFile(users[*usercount]);
 
     printf("Registration successful!\n");
@@ -154,6 +149,8 @@ void registration(struct user users[], int *usercount) {
 }
 
 void login(struct user users[], int usercount) {
+    int attemptsMade = 0;
+    int totalAttempts = 3;
     int found = 0;
     int wantToRegister =0;
     do{
@@ -182,15 +179,25 @@ void login(struct user users[], int usercount) {
         }
 
         if (found==0) {
-            printf("Invalid username or password.\n");
-            printf("Do you want to register? (1 - Yes, 0 - No): ");
-            scanf("%d", &wantToRegister);
-            if (wantToRegister==1){
-                registration(users, &usercount);
+            attemptsMade++;
+
+            printf("Invalid username or password.\n\n");
+            printf("You have %d attempts left from %d \n\n\n", totalAttempts-attemptsMade, totalAttempts);
+
+            if (attemptsMade <  totalAttempts) {
+                printf("Do you want to register? (1 - Yes, 0 - No): ");
+                scanf("%d", &wantToRegister);
+                if (wantToRegister==1) {
+                    registration(users, &usercount);
+                }
+            } else {
+                printf("You fields are locked. Wait for 10 seconds\n");
+                sleep(10); 
+
             }
         }
         
-    } while (found==0);
+    } while (found==0 && attemptsMade < totalAttempts);
 }
 
 unsigned long hashString(const char *str) {
@@ -198,7 +205,7 @@ unsigned long hashString(const char *str) {
     int c;
     while (*str != '\0') {
         c= *str;
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + 97
+        hash = ((hash << 5) + hash) + c;  // (hash * 33) + 112
         str++;                     
     }
     return hash;
@@ -253,7 +260,7 @@ void getUserRecordFile(char *username, char *filepath) {
 }
 
 void addRecord(char *username) {
-    struct budgetEntry p;
+    struct budgetRecord p;
     char filepath[100];
     getUserRecordFile(username, filepath);
 
@@ -287,7 +294,7 @@ void addRecord(char *username) {
 }
 
 void viewRecord(char *username) {
-    struct budgetEntry p;
+    struct budgetRecord p;
     int i=1;
     char filepath[100];
     getUserRecordFile(username, filepath);
@@ -315,7 +322,7 @@ void viewRecord(char *username) {
 }
 
 void editRecord(char *username) {
-    struct budgetEntry arr[500];
+    struct budgetRecord arr[500];
     int count = 0, recordSno, found = 0;
 
     char filepath[100];
@@ -327,7 +334,6 @@ void editRecord(char *username) {
         return;
     }
 
-    // Read + decrypt amounts
     while (fscanf(fp, "%s %f %[^\n]",
                   arr[count].date,
                   &arr[count].amount,
@@ -361,7 +367,7 @@ void editRecord(char *username) {
     fgets(arr[i].type, sizeof(arr[i].type), stdin);
     arr[i].type[strcspn(arr[i].type, "\n")] = 0;
 
-    // Write back (encrypting amounts)
+
     fp = fopen(filepath, "w");
     for (int j = 0; j < count; j++) {
 
@@ -376,7 +382,7 @@ void editRecord(char *username) {
 }
 
 void deleteRecord(char *username) {
-    struct budgetEntry arr[500];
+    struct budgetRecord arr[500];
     int count = 0, recordSno, found = 0;
 
     char filepath[100];
@@ -388,7 +394,7 @@ void deleteRecord(char *username) {
         return;
     }
 
-    // Read + decrypt amounts
+
     while (fscanf(fp, "%s %f %[^\n]",
                   arr[count].date,
                   &arr[count].amount,
@@ -432,57 +438,53 @@ void deleteRecord(char *username) {
         printf("Record not found!\n");
 }
 
+
+
 void sentMonthlyReport(char *username) {
     char monthNum[3];
-    printf("Enter month (e.g., 11 for November): ");
+    printf("Enter month (e.g., 08 for August): ");
     scanf("%s", monthNum);
 
-    struct budgetEntry p;
-    float totalIncome = 0, totalExpense = 0;
+    char month[30] = "";
 
-    char filepath[100];
-    sprintf(filepath, "records/%s.txt", username);
+    strcat(month, returnMonth(monthNum));
 
-    FILE *fp = fopen(filepath, "r");
-    if (!fp) {
-        printf("No records found!\n");
-        return;
-    }
+    if (strcmp(month, "Invalid") == 0) {
+        printf("Invalid month selected!\n");
+    } else {
+        struct budgetRecord p;
+        float totalIncome = 0, totalExpense = 0;
 
-    while (fscanf(fp, "%s %f %s", p.date, &p.amount, p.type) != EOF) {
-        p.amount = decryptAmount(p.amount);
+        char filepath[100];
+        sprintf(filepath, "records/%s.txt", username);
 
-        if (strncmp(p.date + 3, monthNum, 2) == 0) {  // check month part
-            if (strcmp(p.type, "income") == 0)
-                totalIncome += p.amount;
-            else if (strcmp(p.type, "expense") == 0)
-                totalExpense += p.amount;
+        FILE *fp = fopen(filepath, "r");
+        if (fp == NULL) {
+            printf("No records found!\n");
+            return;
         }
+
+        while (fscanf(fp, "%s %f %s", p.date, &p.amount, p.type) != EOF) {
+            p.amount = decryptAmount(p.amount);
+            if (strncmp(p.date + 3, monthNum, 2) == 0) {  // to check only month part
+                if (strcmp(p.type, "income") == 0)
+                    totalIncome += p.amount;
+                else if (strcmp(p.type, "expense") == 0)
+                    totalExpense += p.amount;
+            }
+        }
+
+        fclose(fp);
+
+
+        printf("\n\t Monthly Report for %s \t\n", month);
+        printf("Total Income  : %.2f\n", totalIncome);
+        printf("Total Expense : %.2f\n", totalExpense);
+        printf("Net Balance   : %.2f\n", totalIncome - totalExpense);
     }
 
-    fclose(fp);
+   
 
-    char month[30];
-
-    if (strcmp(monthNum, "1") == 0) strcpy(month, "January");
-    else if (strcmp(monthNum, "2") == 0) strcpy(month, "February");
-    else if (strcmp(monthNum, "3") == 0) strcpy(month, "March");
-    else if (strcmp(monthNum, "4") == 0) strcpy(month, "April");
-    else if (strcmp(monthNum, "5") == 0) strcpy(month, "May");
-    else if (strcmp(monthNum, "6") == 0) strcpy(month, "June");
-    else if (strcmp(monthNum, "7") == 0) strcpy(month, "July");
-    else if (strcmp(monthNum, "8") == 0) strcpy(month, "August");
-    else if (strcmp(monthNum, "9") == 0) strcpy(month, "September");
-    else if (strcmp(monthNum, "10") == 0) strcpy(month, "October");
-    else if (strcmp(monthNum, "11") == 0) strcpy(month, "November");
-    else if (strcmp(monthNum, "12") == 0) strcpy(month, "December");
-    else strcpy(month, "Invalid");
-
-
-    printf("\n\t Monthly Report for %s \t\n", month);
-    printf("Total Income  : %.2f\n", totalIncome);
-    printf("Total Expense : %.2f\n", totalExpense);
-    printf("Net Balance   : %.2f\n", totalIncome - totalExpense);
 }
 
 void sentAlert(char *username) {
@@ -490,7 +492,7 @@ void sentAlert(char *username) {
     printf("Enter expense limit for alert: ");
     scanf("%f", &limit);
 
-    struct budgetEntry p;
+    struct budgetRecord p;
     float totalExpense = 0;
 
     char filepath[100];
@@ -523,3 +525,20 @@ float decryptAmount(float encrypted) {
     return (encrypted-147.59) / 4;  
 }
 
+
+
+char* returnMonth(char* monthNum) {
+    if (strcmp(monthNum, "01") == 0) return "January";
+    else if (strcmp(monthNum, "02") == 0) return "February";
+    else if (strcmp(monthNum, "03") == 0) return "March";
+    else if (strcmp(monthNum, "04") == 0) return "April";
+    else if (strcmp(monthNum, "05") == 0) return "May";
+    else if (strcmp(monthNum, "06") == 0) return "June";
+    else if (strcmp(monthNum, "07") == 0) return "July";
+    else if (strcmp(monthNum, "08") == 0) return "August";
+    else if (strcmp(monthNum, "10") == 0) return "October";
+    else if (strcmp(monthNum, "11") == 0) return "November";
+    else if (strcmp(monthNum, "12") == 0) return "December";
+    else return "Invalid";
+
+}
