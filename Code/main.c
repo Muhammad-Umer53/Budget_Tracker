@@ -17,25 +17,32 @@ struct budgetRecord{
 void homeMenu(struct user users[], int *usercount);
 void dashboardMenu(char *username);
 
-void loadCredentials(struct user users[], int *usercount);
-void saveCredentialToFile(struct user u);
-void getUserRecordFile(char *username, char *filepath);
-
+// home menu options
 void registration(struct user users[], int *usercount);
 void login(struct user users[], int usercount);
 
-// security algorithms
-unsigned long hashString(const char *str);
-float encryptAmount(float amount);
-float decryptAmount(float encrypted);
-
+// dashboard menu options
 void viewRecord(char *username);
 void addRecord(char *username);
 void deleteRecord(char *username);
 void editRecord(char *username);
 void sentAlert(char *username);
 void sentMonthlyReport(char *username);
+
+// utility functions
+void loadCredentials(struct user users[], int *usercount);
+void saveCredentialToFile(struct user u);
+void getUserRecordFile(char *username, char *filepath);
+
+void readRecords(FILE *fptr,int index);
+void readExpenseRecords(FILE *fptr, float *totalExpense);
+void readMonthlyBudget(FILE *fptr, char *monthNum, float *totalExpense, float *totalIncome);
 char* returnMonth(char* monthNum);
+
+// security algorithms
+unsigned long hashString(const char *str);
+float encryptAmount(float amount);
+float decryptAmount(float encrypted);
 
 void exitMenu();
 void invalidChoice();
@@ -46,7 +53,6 @@ int main() {
     int usercount = 0;
 
     loadCredentials(users, &usercount);
-
 
     homeMenu(users,&usercount);
 
@@ -182,7 +188,7 @@ void login(struct user users[], int usercount) {
             attemptsMade++;
 
             printf("Invalid username or password.\n\n");
-            printf("You have %d attempts left from %d \n\n\n", totalAttempts-attemptsMade, totalAttempts);
+            printf("You have %d attempts out of %d \n\n\n", totalAttempts-attemptsMade, totalAttempts);
 
             if (attemptsMade <  totalAttempts) {
                 printf("Do you want to register? (1 - Yes, 0 - No): ");
@@ -294,7 +300,6 @@ void addRecord(char *username) {
 }
 
 void viewRecord(char *username) {
-    struct budgetRecord p;
     int i=1;
     char filepath[100];
     getUserRecordFile(username, filepath);
@@ -306,20 +311,12 @@ void viewRecord(char *username) {
     }
 
     printf("\n\tYour Records \t\n");
-    while (fscanf(fp, "%s %f %[^\n]",
-                  &p.date, &p.amount, p.type) != EOF) 
-    {
-        float amount = decryptAmount(p.amount);
 
-
-        printf("S.no: %d | Date: %s | Amount: %.2f | type: %s\n",
-               i, p.date, amount, p.type); 
-        i++;
-    }
-
+    readRecords(fp, i);
 
     fclose(fp);
 }
+
 
 void editRecord(char *username) {
     struct budgetRecord arr[500];
@@ -345,40 +342,43 @@ void editRecord(char *username) {
     fclose(fp);
 
     viewRecord(username);
-
-    printf("Enter S.no to edit that specific record: ");
+    printf("Enter S.no to edit that specific record or 0 to go back: ");
     scanf("%d", &recordSno);
 
-    if (recordSno < 1 || recordSno > count) {
-        printf("Record not found!\n");
+    if (recordSno == 0) {
         return;
-    }
+    } else {
+        if (recordSno < 1 || recordSno > count) {
+            printf("Invalid S.no selected\n");
+            return;
+        }
 
-    int i = recordSno - 1;
+        int i = recordSno - 1;
 
-    printf("Enter new date: ");
-    scanf("%s", arr[i].date);
+        printf("Enter new date: ");
+        scanf("%s", arr[i].date);
 
-    printf("Enter new amount: ");
-    scanf("%f", &arr[i].amount);
+        printf("Enter new amount: ");
+        scanf("%f", &arr[i].amount);
 
-    printf("Enter new type (income or expense): ");
-    getchar();
-    fgets(arr[i].type, sizeof(arr[i].type), stdin);
-    arr[i].type[strcspn(arr[i].type, "\n")] = 0;
+        printf("Enter new type (income or expense): ");
+        getchar();
+        fgets(arr[i].type, sizeof(arr[i].type), stdin);
+        arr[i].type[strcspn(arr[i].type, "\n")] = 0;
 
 
-    fp = fopen(filepath, "w");
-    for (int j = 0; j < count; j++) {
+        fp = fopen(filepath, "w");
+        for (int j = 0; j < count; j++) {
 
-        float encrypted = encryptAmount(arr[j].amount);
+            float encrypted = encryptAmount(arr[j].amount);
 
-        fprintf(fp, "%s %.2f %s\n",
-                arr[j].date, encrypted, arr[j].type);
-    }
+            fprintf(fp, "%s %.2f %s\n",
+                    arr[j].date, encrypted, arr[j].type);
+        }
 
-    fclose(fp);
-    printf("Record updated!\n");
+        fclose(fp);
+        printf("Record updated!\n");
+    } 
 }
 
 void deleteRecord(char *username) {
@@ -394,7 +394,6 @@ void deleteRecord(char *username) {
         return;
     }
 
-
     while (fscanf(fp, "%s %f %[^\n]",
                   arr[count].date,
                   &arr[count].amount,
@@ -407,40 +406,54 @@ void deleteRecord(char *username) {
 
     viewRecord(username);
 
-    printf("Enter S.no to delete that specific record: ");
+    printf("Enter S.no to delete that record or 0 to go back: ");
     scanf("%d", &recordSno);
 
-    if (recordSno < 1 || recordSno > count) {
-        printf("Record not found!\n");
+    if (recordSno==0) {
         return;
-    }
-
-    fp = fopen(filepath, "w");
-
-    for (int i = 0; i < count; i++) {
-
-        if (i == recordSno - 1) {
-            found = 1;
-            continue;  
+    } else {
+        
+        if (recordSno < 1 || recordSno > count) {
+            printf("Invalid S.no selected\n");
+            return;
         }
 
-        float encrypted = encryptAmount(arr[i].amount);
+        fp = fopen(filepath, "w");
 
-        fprintf(fp, "%s %.2f %s\n",
-                arr[i].date, encrypted, arr[i].type);
+        for (int i = 0; i < count; i++) {
+
+            if (i == recordSno - 1) {
+                found = 1;
+                continue;  
+            }
+
+            float encrypted = encryptAmount(arr[i].amount);
+
+            fprintf(fp, "%s %.2f %s\n",
+                    arr[i].date, encrypted, arr[i].type);
+        }
+
+        fclose(fp);
+
+        if (found)
+            printf("Record deleted!\n");
+        else
+            printf("Record not found!\n");
     }
 
-    fclose(fp);
-
-    if (found)
-        printf("Record deleted!\n");
-    else
-        printf("Record not found!\n");
 }
 
 
-
 void sentMonthlyReport(char *username) {
+    char filepath[100];
+    sprintf(filepath, "records/%s.txt", username);
+
+    FILE *fp = fopen(filepath, "r");
+    if (fp == NULL) {
+        printf("No records found!\n");
+        return;
+    }
+
     char monthNum[3];
     printf("Enter month (e.g., 08 for August): ");
     scanf("%s", monthNum);
@@ -451,31 +464,19 @@ void sentMonthlyReport(char *username) {
 
     if (strcmp(month, "Invalid") == 0) {
         printf("Invalid month selected!\n");
+        fclose(fp);
+        return;
     } else {
-        struct budgetRecord p;
-        float totalIncome = 0, totalExpense = 0;
-
-        char filepath[100];
-        sprintf(filepath, "records/%s.txt", username);
-
-        FILE *fp = fopen(filepath, "r");
-        if (fp == NULL) {
-            printf("No records found!\n");
+        if (strcmp(month, "Back")==0){
+            fclose(fp);
             return;
         }
+        struct budgetRecord p;
+        float totalExpense = 0, totalIncome = 0;
 
-        while (fscanf(fp, "%s %f %s", p.date, &p.amount, p.type) != EOF) {
-            p.amount = decryptAmount(p.amount);
-            if (strncmp(p.date + 3, monthNum, 2) == 0) {  // to check only month part
-                if (strcmp(p.type, "income") == 0)
-                    totalIncome += p.amount;
-                else if (strcmp(p.type, "expense") == 0)
-                    totalExpense += p.amount;
-            }
-        }
+        readMonthlyBudget(fp, monthNum, &totalExpense, &totalIncome);
 
         fclose(fp);
-
 
         printf("\n\t Monthly Report for %s \t\n", month);
         printf("Total Income  : %.2f\n", totalIncome);
@@ -487,13 +488,8 @@ void sentMonthlyReport(char *username) {
 
 }
 
-void sentAlert(char *username) {
-    float limit;
-    printf("Enter expense limit for alert: ");
-    scanf("%f", &limit);
 
-    struct budgetRecord p;
-    float totalExpense = 0;
+void sentAlert(char *username) {
 
     char filepath[100];
     sprintf(filepath, "records/%s.txt", username);
@@ -504,17 +500,20 @@ void sentAlert(char *username) {
         return;
     }
 
-    while (fscanf(fp, "%s %f %s", p.date, &p.amount, p.type) != EOF) {
-        if (strcmp(p.type, "expense") == 0)
-            totalExpense += p.amount;
-    }
+    float limit;
+    printf("Enter expense limit for alert: ");
+    scanf("%f", &limit);
+
+    float totalExpense = 0;
+
+    readExpenseRecords(fp, &totalExpense);
 
     fclose(fp);
 
     if (totalExpense > limit)
-        printf("\nALERT: Your total expense of %.2f exceeded the limit %.2f\n", totalExpense, limit);
+        printf("\nALERT: Your total expense of %.2f exceeded the limit of %.2f\n", totalExpense, limit);
     else
-        printf("Total expense of %.2f is within the limit %.2f\n", totalExpense, limit);
+        printf("Total expense of %.2f is within the limit of %.2f\n", totalExpense, limit);
 }
 
 float encryptAmount(float amount) {
@@ -525,10 +524,59 @@ float decryptAmount(float encrypted) {
     return (encrypted-147.59) / 4;  
 }
 
+void readRecords(FILE *fptr,int index) {
 
+    struct budgetRecord p;
+
+    if (fscanf(fptr, "%s %f %[^\n]", &p.date, &p.amount, p.type) == EOF){
+        return;
+    }
+
+    float amount = decryptAmount(p.amount);
+
+
+    printf("S.no: %d | Date: %s | Amount: %.2f | type: %s \n",
+            index, p.date, amount, p.type); 
+
+    readRecords(fptr, index+1);
+}
+
+void readExpenseRecords(FILE *fptr, float *totalExpense) {
+    struct budgetRecord budget;
+    if (fscanf(fptr, "%s %f %s", budget.date, &budget.amount, budget.type) == EOF){
+        return;
+    }
+    if (strcmp(budget.type, "expense") == 0) {
+        budget.amount = decryptAmount(budget.amount);
+        *totalExpense += budget.amount;
+    }
+
+    readExpenseRecords(fptr, totalExpense);
+
+
+}
+
+void readMonthlyBudget(FILE *fptr, char *monthNum, float *totalExpense, float *totalIncome) {
+    struct budgetRecord budget;
+
+    if (fscanf(fptr, "%s %f %s", budget.date, &budget.amount, budget.type) == EOF) {
+        return;
+    } 
+    budget.amount = decryptAmount(budget.amount);
+    if (strncmp(budget.date+3, monthNum,2)==0){
+        if (strcmp(budget.type, "expense")==0) {
+            *totalExpense += budget.amount;
+        } else {
+            *totalIncome += budget.amount;
+        }
+    }
+
+    readMonthlyBudget(fptr, monthNum, totalExpense, totalIncome);
+}
 
 char* returnMonth(char* monthNum) {
-    if (strcmp(monthNum, "01") == 0) return "January";
+    if (strcmp(monthNum, "00") == 0) return "Back";
+    else if (strcmp(monthNum, "01") == 0) return "January";
     else if (strcmp(monthNum, "02") == 0) return "February";
     else if (strcmp(monthNum, "03") == 0) return "March";
     else if (strcmp(monthNum, "04") == 0) return "April";
